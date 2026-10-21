@@ -3,14 +3,15 @@ const { db, admin } = require('../config/firebaseAdmin');
 
 const router = express.Router();
 
-function todosCollection() {
-  return db.collection('todos');
+// Each user's tasks live at users/{uid}/todos
+function todosCollection(uid) {
+  return db.collection('users').doc(uid).collection('todos');
 }
 
-// GET /api/todos — list all tasks
+// GET /api/todos — list the logged-in user's tasks
 router.get('/', async (req, res) => {
   try {
-    const snapshot = await todosCollection()
+    const snapshot = await todosCollection(req.uid)
       .orderBy('createdAt', 'desc')
       .get();
 
@@ -32,7 +33,7 @@ router.post('/', async (req, res) => {
   }
 
   try {
-    const docRef = await todosCollection().add({
+    const docRef = await todosCollection(req.uid).add({
       title: title.trim(),
       dueDate: dueDate || null,
       priority: priority || 'Med',
@@ -50,7 +51,6 @@ router.post('/', async (req, res) => {
 });
 
 // PUT /api/todos/:id — edit a task (any subset of fields), or toggle completed
-// Body: any of { title, dueDate, priority, tag, completed }
 router.put('/:id', async (req, res) => {
   const { id } = req.params;
   const { title, dueDate, priority, tag, completed } = req.body;
@@ -69,7 +69,7 @@ router.put('/:id', async (req, res) => {
   updates.updatedAt = admin.firestore.FieldValue.serverTimestamp();
 
   try {
-    const docRef = todosCollection().doc(id);
+    const docRef = todosCollection(req.uid).doc(id);
     const doc = await docRef.get();
 
     if (!doc.exists) {
@@ -90,7 +90,7 @@ router.delete('/:id', async (req, res) => {
   const { id } = req.params;
 
   try {
-    const docRef = todosCollection().doc(id);
+    const docRef = todosCollection(req.uid).doc(id);
     const doc = await docRef.get();
 
     if (!doc.exists) {
