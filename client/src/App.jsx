@@ -198,7 +198,7 @@ export default function App() {
         </nav>
       </header>
 
-      {error && <p style={{ color: 'red' }} role="alert">{error}</p>}
+      {error && <p className="app-error" role="alert">{error}</p>}
 
       {page === 'profile' ? (
         <Profile profile={profile} tasks={tasks} onSave={setProfile} />

@@ -151,6 +151,25 @@ h2 {
 .btn-secondary { background: #6c757d; color: white; }
 .btn-danger { background: #dc3545; color: white; }
 
+.form-error,
+.app-error {
+  color: #b42318;
+  background: #fef3f2;
+  border: 1px solid #fecdca;
+  border-radius: 6px;
+  padding: 10px 12px;
+  margin: 0 0 16px;
+}
+
+.form-info {
+  color: #175cd3;
+  background: #eff8ff;
+  border: 1px solid #b2ddff;
+  border-radius: 6px;
+  padding: 10px 12px;
+  margin: 0 0 16px;
+}
+
 /* --- LOGIN & AUTH STYLING --- */
 .login-container {
   display: flex;
