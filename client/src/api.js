@@ -1,60 +1,35 @@
 import { auth } from './firebase';
 
-const BASE_URL = 'http://localhost:5000/api/todos';
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 
-async function authHeaders(extra = {}) {
+async function request(path, { method = 'GET', body } = {}) {
   const token = await auth.currentUser?.getIdToken();
-  return { ...extra, Authorization: `Bearer ${token}` };
-}
-
-async function parseError(res, fallback) {
-  try {
-    const err = await res.json();
-    return new Error(err.error || fallback);
-  } catch {
-    return new Error(fallback);
+  const res = await fetch(`${API_URL}${path}`, {
+    method,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      ...(body ? { 'Content-Type': 'application/json' } : {}),
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (!res.ok) {
+    let message = 'Request failed';
+    try { message = (await res.json()).error || message; } catch { /* non-JSON error */ }
+    throw new Error(message);
   }
+  return res.status === 204 ? null : res.json();
 }
 
-// GET all tasks
-export async function getTodos() {
-  const res = await fetch(BASE_URL, { headers: await authHeaders() });
-  if (!res.ok) throw await parseError(res, 'Failed to fetch todos');
-  return res.json();
-}
+// listId is 'personal' for existing per-user tasks or a collaborative list ID.
+export const getTodos = (listId = 'personal') =>
+  request(`/todos?listId=${encodeURIComponent(listId)}`);
+export const addTodo = (task) => request('/todos', { method: 'POST', body: task });
+export const updateTodo = (id, updates) => request(`/todos/${id}`, { method: 'PUT', body: updates });
+export const toggleTodo = (id, completed) => updateTodo(id, { completed });
+export const deleteTodo = (id) => request(`/todos/${id}`, { method: 'DELETE' });
 
-// POST a new task
-export async function addTodo(task) {
-  const res = await fetch(BASE_URL, {
-    method: 'POST',
-    headers: await authHeaders({ 'Content-Type': 'application/json' }),
-    body: JSON.stringify(task),
-  });
-  if (!res.ok) throw await parseError(res, 'Failed to create task');
-  return res.json();
-}
-
-// PUT — edit any subset of fields
-export async function updateTodo(id, updates) {
-  const res = await fetch(`${BASE_URL}/${id}`, {
-    method: 'PUT',
-    headers: await authHeaders({ 'Content-Type': 'application/json' }),
-    body: JSON.stringify(updates),
-  });
-  if (!res.ok) throw await parseError(res, 'Failed to update task');
-  return res.json();
-}
-
-// PUT - toggling done
-export async function toggleTodo(id, completed) {
-  return updateTodo(id, { completed });
-}
-
-// DELETE
-export async function deleteTodo(id) {
-  const res = await fetch(`${BASE_URL}/${id}`, {
-    method: 'DELETE',
-    headers: await authHeaders(),
-  });
-  if (!res.ok) throw await parseError(res, 'Failed to delete task');
-}
+export const getLists = () => request('/lists');
+export const createList = (name) => request('/lists', { method: 'POST', body: { name } });
+export const deleteList = (id) => request(`/lists/${id}`, { method: 'DELETE' });
+export const addMember = (id, email) => request(`/lists/${id}/members`, { method: 'POST', body: { email } });
+export const removeMember = (id, memberUid) => request(`/lists/${id}/members/${memberUid}`, { method: 'DELETE' });

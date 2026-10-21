@@ -3,6 +3,7 @@ const express = require('express');
 const cors = require('cors');
 const requireAuth = require('./middleware/requireAuth');
 const todosRouter = require('./routes/todos');
+const listsRouter = require('./routes/lists');
 
 const app = express();
 const PORT = 5000;
@@ -16,6 +17,7 @@ app.get('/', (req, res) => {
 });
  
 app.use('/api/todos', requireAuth, todosRouter);
+app.use('/api/lists', requireAuth, listsRouter);
 
 app.listen(PORT, () => {
   console.log(`Server listening on http://localhost:${PORT}`);
