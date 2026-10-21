@@ -2,15 +2,22 @@ import { useEffect, useMemo, useState } from 'react';
 import './App.css';
 import Login from './Login';
 import Profile from './Profile';
+import ListBar from './ListBar';
 import { useAuth } from './authContext';
-import { getTodos, addTodo, updateTodo, toggleTodo, deleteTodo } from './api';
+import {
+  getTodos, addTodo, updateTodo, toggleTodo, deleteTodo,
+  getLists, createList, deleteList, addMember, removeMember,
+} from './api';
 
 const EMPTY_FORM = { title: '', dueDate: '', priority: 'Med', tag: 'School' };
+const PERSONAL = 'personal';
 
 export default function App() {
   const { user, logout } = useAuth();
   const [page, setPage] = useState('tasks');
   const [profile, setProfile] = useState({ fullName: '', email: '' });
+  const [lists, setLists] = useState([]);
+  const [activeListId, setActiveListId] = useState(PERSONAL);
   const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -19,9 +26,12 @@ export default function App() {
   const [sortBy, setSortBy] = useState('createdAt');
   const [filterTag, setFilterTag] = useState('All');
   const [filterPriority, setFilterPriority] = useState('All');
+  const activeList = lists.find((list) => list.id === activeListId) || null;
 
   useEffect(() => {
     if (!user) {
+      setLists([]);
+      setActiveListId(PERSONAL);
       setTasks([]);
       setForm(EMPTY_FORM);
       setEditingId(null);
@@ -32,19 +42,66 @@ export default function App() {
       return;
     }
 
+    setLists([]);
+    setActiveListId(PERSONAL);
     setProfile({ fullName: user.displayName || '', email: user.email || '' });
-    loadTasks();
+    let ignore = false;
+    getLists()
+      .then((data) => { if (!ignore) setLists(data); })
+      .catch((err) => { if (!ignore) setError(err.message); });
+    return () => { ignore = true; };
   }, [user]);
 
-  async function loadTasks() {
-    try {
-      setLoading(true);
-      setError(null);
-      setTasks(await getTodos());
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
+  useEffect(() => {
+    if (!user) return;
+    let ignore = false;
+    (async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const data = await getTodos(activeListId);
+        if (!ignore) setTasks(data);
+      } catch (err) {
+        if (!ignore) {
+          setTasks([]);
+          setError(err.message);
+        }
+      } finally {
+        if (!ignore) setLoading(false);
+      }
+    })();
+    return () => { ignore = true; };
+  }, [user, activeListId]);
+
+  function handleSelectList(id) {
+    cancelEdit();
+    setActiveListId(id);
+  }
+
+  async function handleCreateList(name) {
+    const created = await createList(name);
+    setLists((current) => [...current, created]);
+    handleSelectList(created.id);
+  }
+
+  async function handleDeleteList(id) {
+    await deleteList(id);
+    setLists((current) => current.filter((list) => list.id !== id));
+    handleSelectList(PERSONAL);
+  }
+
+  async function handleAddMember(id, email) {
+    const updated = await addMember(id, email);
+    setLists((current) => current.map((list) => (list.id === id ? updated : list)));
+  }
+
+  async function handleRemoveMember(id, memberUid) {
+    await removeMember(id, memberUid);
+    if (memberUid === user.uid) {
+      setLists((current) => current.filter((list) => list.id !== id));
+      handleSelectList(PERSONAL);
+    } else {
+      setLists(await getLists());
     }
   }
 
@@ -60,7 +117,7 @@ export default function App() {
         setTasks(tasks.map((task) => (task.id === editingId ? updated : task)));
         setEditingId(null);
       } else {
-        const created = await addTodo(form);
+        const created = await addTodo({ ...form, listId: activeListId });
         setTasks([created, ...tasks]);
       }
       setForm(EMPTY_FORM);
@@ -99,6 +156,13 @@ export default function App() {
     }
   }
 
+  const canDelete = (task) => !activeList || task.ownerId === user.uid || activeList.isOwner;
+  const creatorName = (task) => {
+    const member = activeList?.members.find((member) => member.uid === task.ownerId);
+    return member ? member.displayName || member.email : 'a former member';
+  };
+  const listTitle = activeList ? activeList.name : 'Personal List';
+
   const visibleTasks = useMemo(() => {
     const priorityRank = { High: 0, Med: 1, Low: 2 };
     return tasks
@@ -129,6 +193,7 @@ export default function App() {
         <nav className="header-actions" aria-label="Main navigation">
           <button className={`btn ${page === 'tasks' ? 'btn-primary' : 'btn-secondary'}`} aria-current={page === 'tasks' ? 'page' : undefined} onClick={() => setPage('tasks')}>Tasks</button>
           <button className={`btn ${page === 'profile' ? 'btn-primary' : 'btn-secondary'}`} aria-current={page === 'profile' ? 'page' : undefined} onClick={() => setPage('profile')}>Profile</button>
+          <span>{user.email}</span>
           <button className="btn btn-secondary" onClick={logout}>Log Out</button>
         </nav>
       </header>
@@ -139,12 +204,22 @@ export default function App() {
         <Profile profile={profile} tasks={tasks} onSave={setProfile} />
       ) : (
         <>
+          <ListBar
+            lists={lists}
+            activeListId={activeListId}
+            currentUid={user.uid}
+            onSelect={handleSelectList}
+            onCreate={handleCreateList}
+            onDelete={handleDeleteList}
+            onAddMember={handleAddMember}
+            onRemoveMember={handleRemoveMember}
+          />
           <section className="card">
-            <h2>{editingId ? 'Edit Task' : 'Add New Task'}</h2>
+            <h2>{editingId ? 'Edit Task' : `Add New Task to ${listTitle}`}</h2>
             <form onSubmit={handleSubmit} className="task-form">
               <div className="form-group">
                 <label htmlFor="title">Title</label>
-                <input type="text" id="title" placeholder="e.g., Submit Software Architecture Diagram" value={form.title} onChange={handleFormChange} required />
+                <input type="text" id="title" placeholder="e.g., Submit Software Architecture Diagram" value={form.title} onChange={handleFormChange} maxLength={200} required />
               </div>
               <div className="form-row">
                 <div className="form-group">
@@ -191,7 +266,7 @@ export default function App() {
           </section>
 
           <section className="card">
-            <h2>Your Tasks</h2>
+            <h2>{listTitle}</h2>
             {loading ? <p>Loading...</p> : visibleTasks.length === 0 ? (
               <p>{tasks.length === 0 ? 'No tasks yet.' : 'No tasks match your filters.'}</p>
             ) : (
@@ -206,10 +281,11 @@ export default function App() {
                       <span className="task-date">Due: {task.dueDate ? new Date(task.dueDate).toLocaleString() : '—'}</span>
                       <span className={`badge priority-${task.priority.toLowerCase()}`}>{task.priority}</span>
                       <span className="badge tag">{task.tag}</span>
+                      {activeList && <span className="task-date">Added by {creatorName(task)}</span>}
                     </div>
                     <div className="task-actions">
                       <button className="btn btn-secondary" onClick={() => startEdit(task)}>Edit</button>
-                      <button className="btn btn-danger" onClick={() => handleDelete(task.id)}>Delete</button>
+                      {canDelete(task) && <button className="btn btn-danger" onClick={() => handleDelete(task.id)}>Delete</button>}
                     </div>
                   </li>
                 ))}
