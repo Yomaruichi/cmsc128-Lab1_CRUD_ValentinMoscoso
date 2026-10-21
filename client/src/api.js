@@ -1,38 +1,47 @@
+import { auth } from './firebase';
+
 const BASE_URL = 'http://localhost:5000/api/todos';
+
+async function authHeaders(extra = {}) {
+  const token = await auth.currentUser?.getIdToken();
+  return { ...extra, Authorization: `Bearer ${token}` };
+}
+
+async function parseError(res, fallback) {
+  try {
+    const err = await res.json();
+    return new Error(err.error || fallback);
+  } catch {
+    return new Error(fallback);
+  }
+}
 
 // GET all tasks
 export async function getTodos() {
-  const res = await fetch(BASE_URL);
-  if (!res.ok) throw new Error('Failed to fetch todos');
+  const res = await fetch(BASE_URL, { headers: await authHeaders() });
+  if (!res.ok) throw await parseError(res, 'Failed to fetch todos');
   return res.json();
 }
 
 // POST a new task
-// task: { title, dueDate, time, priority, tag }
 export async function addTodo(task) {
   const res = await fetch(BASE_URL, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: await authHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify(task),
   });
-  if (!res.ok) {
-    const err = await res.json();
-    throw new Error(err.error || 'Failed to create task');
-  }
+  if (!res.ok) throw await parseError(res, 'Failed to create task');
   return res.json();
 }
 
-// PUT — edit any subset of fields, e.g. { title, dueDate, time, priority, tag }
+// PUT — edit any subset of fields
 export async function updateTodo(id, updates) {
   const res = await fetch(`${BASE_URL}/${id}`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
+    headers: await authHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify(updates),
   });
-  if (!res.ok) {
-    const err = await res.json();
-    throw new Error(err.error || 'Failed to update task');
-  }
+  if (!res.ok) throw await parseError(res, 'Failed to update task');
   return res.json();
 }
 
@@ -43,9 +52,9 @@ export async function toggleTodo(id, completed) {
 
 // DELETE
 export async function deleteTodo(id) {
-  const res = await fetch(`${BASE_URL}/${id}`, { method: 'DELETE' });
-  if (!res.ok) {
-    const err = await res.json();
-    throw new Error(err.error || 'Failed to delete task');
-  }
+  const res = await fetch(`${BASE_URL}/${id}`, {
+    method: 'DELETE',
+    headers: await authHeaders(),
+  });
+  if (!res.ok) throw await parseError(res, 'Failed to delete task');
 }

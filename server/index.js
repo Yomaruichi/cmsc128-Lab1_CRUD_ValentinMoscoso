@@ -1,7 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-
+const requireAuth = require('./middleware/requireAuth');
 const todosRouter = require('./routes/todos');
 
 const app = express();
@@ -15,7 +15,7 @@ app.get('/', (req, res) => {
   res.json({ status: 'ok', message: 'Todo API is running' });
 });
  
-app.use('/api/todos', todosRouter);
+app.use('/api/todos', requireAuth, todosRouter);
 
 app.listen(PORT, () => {
   console.log(`Server listening on http://localhost:${PORT}`);
