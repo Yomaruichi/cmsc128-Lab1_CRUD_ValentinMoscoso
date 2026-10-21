@@ -46,7 +46,9 @@ VITE_FIREBASE_APP_ID=
 VITE_FIREBASE_MEASUREMENT_ID=
 ```
 
-4. Run the client
+4. Download a service account key (Firebase console → Project settings → Service accounts → Generate new private key), save it as `server/serviceAccountKey.json`, and create `server/.env`:
+
+5. Run the client
 If you're in the root folder
 ```bash
 cd client
@@ -58,28 +60,74 @@ npm run dev
 ```
 default address: http://localhost:5173/
 
-5. Set up the server
+6. Set up the server
 ```bash
 cd ../server
 npm install
 ```
 
-6. Run the server
+7. Run the server
 ```bash
 npm run start
 ```
 
+## How Activity 1 and Activity 2 were merged
+
+Our activity 2 already had activity 1's implementation, as most of the job was done by firebase's own account creation library.
+Activity 1 got its persistent data feature by having a single uid where the api gets all the todo cards. Implementing having
+multiple users was simply creating the UI for it and connecting it to firebase's account creation library. As for letting each
+user only access their own todos, we changed how `api.js` and `todos.js` handles requests to now require the uid that every users
+get when they make an account which is provided everytime you login. This was already implemented but just not used on activity 1 as there was no account creation yet.
+
+## Database schema
+
+Accounts live in Firebase Authentication (uid, email, display name, hashed password). Application data lives in Firestore and references accounts only by `uid`, so no user data is duplicated.
+
+```
+tasks/{taskId}
+  ownerId    string      uid of the creator (the owner for personal tasks)
+  listId     string|null null = personal task, otherwise the id of a list
+  title, dueDate, priority, tag, completed, createdAt, updatedAt
+
+lists/{listId}            (collaborative lists only)
+  name       string
+  ownerId    string      uid of the list owner
+  memberIds  string[]    uids of everyone with access (includes the owner)
+  createdAt
+```
+
+- Users → Tasks: one-to-many through `tasks.ownerId`.
+- Users ↔ Lists: many-to-many through `lists.memberIds`; the list owner is `lists.ownerId`.
+- Lists → Tasks: one-to-many through `tasks.listId`.
+
+## How ownership is checked
+
+The client never sends a user id. `requireAuth` verifies the Firebase ID token with `verifyIdToken` and sets `req.uid`; every query and check uses that value.
+
+- Personal tasks: queries filter on `ownerId == req.uid`, and a single-task route loads the task and rejects it unless `task.ownerId === req.uid`.
+- Collaborative tasks: the route loads the task's list and rejects it unless `req.uid` is in `list.memberIds`.
+- Not found and not allowed look the same. Another user's task or list returns `404`, so a guessed ID reveals nothing (IDOR prevention). A member who lacks a privilege (for example a non-owner deleting a list) gets `403`.
+- Mass assignment is blocked: `ownerId` and `listId` are never read from a request body on update, and `ownerId` on create always comes from the token.
+- Direct database access is blocked: `firestore.rules` denies all client reads and writes, so the public web config cannot bypass the API. Only the Admin SDK in the server can reach Firestore.
+
+The checks live in `server/lib/access.js` (`getListForMember`, `getTaskForUser`).
+
 ## Data Operations
 
-All `/api/todos` routes require the header `Authorization: Bearer <Firebase ID token>`. Todos are stored in Firestore at `users/{uid}/todos/{todoId}`.
+All routes require the header `Authorization: Bearer <Firebase ID token>`. without it the response is `401`.
 
-| Method | Route | Payload | Function | Description |
-| --- | --- | --- | --- | --- |
-| GET | /api/todos | none | getTodos | List all todos of the logged-in user |
-| GET | /api/todos/:id | none | getTodo | Get one todo |
-| POST | /api/todos | `{ title, description, dueDate }` | createTodo | Create a todo (`completed: false`, `createdAt` set by server) |
-| PUT | /api/todos/:id | `{ title?, description?, dueDate?, completed? }` | updateTodo | Update fields of a todo |
-| DELETE | /api/todos/:id | none | deleteTodo | Delete a todo |
+| Method | Route | Body | Ownership check |
+| --- | --- | --- | --- |
+| GET | `/api/todos?listId=personal` | none | returns only tasks where `ownerId == uid` and `listId == null` |
+| GET | `/api/todos?listId=<id>` | none | caller must be in the list's `memberIds`, else 404 |
+| POST | `/api/todos` | `{ title, dueDate, priority, tag, listId? }` | `ownerId` set from the token; for a list, caller must be a member |
+| PUT | `/api/todos/:id` | any of `{ title, dueDate, priority, tag, completed }` | owner (personal) or list member; else 404 |
+| DELETE | `/api/todos/:id` | none | owner (personal), or task creator / list owner (collaborative); else 404 or 403 |
+| GET | `/api/lists` | none | only lists where `uid` is in `memberIds` |
+| POST | `/api/lists` | `{ name }` | caller becomes owner and first member |
+| POST | `/api/lists/:id/members` | `{ email }` | list owner only (403 for other members, 404 for non-members) |
+| DELETE | `/api/lists/:id/members/:uid` | none | owner removes anyone except the owner; any member can remove themselves |
+| DELETE | `/api/lists/:id` | none | list owner only; also deletes the list's tasks |
 
 ## Authentication Operations
 
@@ -90,8 +138,6 @@ All `/api/todos` routes require the header `Authorization: Bearer <Firebase ID t
 | Log out | signOut | none | Ends session |
 | Forgot password | sendPasswordResetEmail | email | Sends reset link |
 | Session check | onAuthStateChanged | none | Restores logged-in user on page load |
-
-## Session and Password-Recovery Mechanism
 
 ### Session Mechanism
 
