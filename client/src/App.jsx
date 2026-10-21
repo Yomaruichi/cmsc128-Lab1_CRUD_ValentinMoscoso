@@ -1,12 +1,15 @@
 import { useState } from 'react';
 import Login from './Login';
+import Profile from './Profile';
 import './App.css';
 
 export default function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [page, setPage] = useState('tasks');
+  const [profile, setProfile] = useState({ fullName: '', email: '' });
 
   // Mock tasks data
-  const [tasks, setTasks] = useState([
+  const [tasks] = useState([
     {
       id: '1',
       title: 'Complete CMSC 128 Lab 1',
@@ -31,7 +34,11 @@ export default function App() {
         <header>
           <h1>To-Do List App</h1>
         </header>
-        <Login onLoginSuccess={() => setIsLoggedIn(true)} />
+        <Login onLoginSuccess={(user) => {
+          setProfile(user);
+          setPage('tasks');
+          setIsLoggedIn(true);
+        }} />
       </div>
     );
   }
@@ -39,15 +46,39 @@ export default function App() {
   return (
     <div className="app-container">
       <header className="header-bar">
-        <h1>To-Do List</h1>
+        <h1>{page === 'profile' ? 'Your Profile' : 'To-Do List'}</h1>
+        <nav className="header-actions" aria-label="Main navigation">
+          <button
+            className={`btn ${page === 'tasks' ? 'btn-primary' : 'btn-secondary'}`}
+            aria-current={page === 'tasks' ? 'page' : undefined}
+            onClick={() => setPage('tasks')}
+          >
+            Tasks
+          </button>
+          <button
+            className={`btn ${page === 'profile' ? 'btn-primary' : 'btn-secondary'}`}
+            aria-current={page === 'profile' ? 'page' : undefined}
+            onClick={() => setPage('profile')}
+          >
+            Profile
+          </button>
         <button
           className="btn btn-secondary"
-          onClick={() => setIsLoggedIn(false)}
+          onClick={() => {
+            setIsLoggedIn(false);
+            setProfile({ fullName: '', email: '' });
+            setPage('tasks');
+          }}
         >
           Log Out
         </button>
+        </nav>
       </header>
 
+      {page === 'profile' ? (
+        <Profile profile={profile} tasks={tasks} onSave={setProfile} />
+      ) : (
+        <>
       {/* ADD / EDIT TASK FORM */}
       <section className="card">
         <h2>Add New Task</h2>
@@ -168,6 +199,8 @@ export default function App() {
           </ul>
         )}
       </section>
+        </>
+      )}
     </div>
   );
 }

@@ -5,8 +5,12 @@ export default function Login({ onLoginSuccess }) {
 
   const handleSubmit = (e) => {
     e.preventDefault();
+    const formData = new FormData(e.currentTarget);
     if (onLoginSuccess) {
-      onLoginSuccess();
+      onLoginSuccess({
+        fullName: (formData.get('fullName') || '').trim(),
+        email: formData.get('email').trim(),
+      });
     }
   };
 
@@ -28,6 +32,7 @@ export default function Login({ onLoginSuccess }) {
               <input
                 type="text"
                 id="fullName"
+                name="fullName"
                 placeholder="e.g., Juan dela Cruz"
                 required
               />
@@ -40,6 +45,7 @@ export default function Login({ onLoginSuccess }) {
             <input
               type="email"
               id="email"
+              name="email"
               placeholder="e.g., student@up.edu.ph"
               required
             />
