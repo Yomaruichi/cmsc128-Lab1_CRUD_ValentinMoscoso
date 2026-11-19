@@ -1,16 +1,19 @@
 const { auth } = require('../config/firebaseadmin');
 
 async function requireAuth(req, res, next) {
-  const header = req.headers.authorization || '';
-  const token = header.startsWith('Bearer ') ? header.slice(7) : null;
+  const authorizationHeader = req.headers.authorization || '';
+
+  const token = authorizationHeader.startsWith('Bearer ') ? authorizationHeader.slice(7) : null;
 
   if (!token) {
     return res.status(401).json({ error: 'Missing token' });
   }
 
   try {
-    const decoded = await auth.verifyIdToken(token);
-    req.uid = decoded.uid;
+    const decodedToken = await auth.verifyIdToken(token);
+
+    req.uid = decodedToken.uid;
+
     next();
   } catch (err) {
     res.status(401).json({ error: 'Invalid or expired token' });

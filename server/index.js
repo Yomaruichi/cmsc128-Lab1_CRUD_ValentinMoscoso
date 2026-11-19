@@ -1,22 +1,30 @@
 require('dotenv').config();
+
 const express = require('express');
+
 const cors = require('cors');
+
 const requireAuth = require('./middleware/requireAuth');
+
 const todosRouter = require('./routes/todos');
+
 const listsRouter = require('./routes/lists');
 
 const app = express();
+
 const PORT = 5000;
 
 app.use(cors());
+
 app.use(express.json());
 
 // Health check
 app.get('/', (req, res) => {
   res.json({ status: 'ok', message: 'Todo API is running' });
 });
- 
+
 app.use('/api/todos', requireAuth, todosRouter);
+
 app.use('/api/lists', requireAuth, listsRouter);
 
 app.listen(PORT, () => {
