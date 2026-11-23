@@ -7,6 +7,10 @@ import {
     sendEmailVerification,
     updateProfile,
     onAuthStateChanged,
+    EmailAuthProvider,
+    reauthenticateWithCredential,
+    updatePassword,
+    verifyBeforeUpdateEmail,
  } from "firebase/auth";
 import { auth } from "./firebase";
 
@@ -32,8 +36,28 @@ export function AuthProvider({ children }) {
   const logout = () => signOut(auth);
   const resetPassword = (email) => sendPasswordResetEmail(auth, email);
 
+  // Firebase asks for the current password again before sensitive changes.
+  const reauthenticate = (currentPassword) =>
+    reauthenticateWithCredential(auth.currentUser, EmailAuthProvider.credential(auth.currentUser.email, currentPassword));
+
+  // A name change applies right away. An email change only applies after the
+  // user opens the verification link sent to the new address.
+  const updateAccount = async ({ fullName, email, currentPassword }) => {
+    const current = auth.currentUser;
+    if (fullName !== (current.displayName || '')) await updateProfile(current, { displayName: fullName });
+    if (email === current.email) return { emailPending: false };
+    await reauthenticate(currentPassword);
+    await verifyBeforeUpdateEmail(current, email);
+    return { emailPending: true };
+  };
+
+  const changePassword = async (currentPassword, newPassword) => {
+    await reauthenticate(currentPassword);
+    await updatePassword(auth.currentUser, newPassword);
+  };
+
   return (
-    <AuthCtx.Provider value={{ user, signup, login, logout, resetPassword }}>
+    <AuthCtx.Provider value={{ user, signup, login, logout, resetPassword, updateAccount, changePassword }}>
       {!loading && children}
     </AuthCtx.Provider>
   );

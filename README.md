@@ -165,8 +165,95 @@ Implemented using Firebase Authentication combined with React Context (`authCont
   2. The user enters their registered email address and submits the form (`handleSubmit`)
   3. The app invokes the `resetPassword(email)` function mapped from `authContext.jsx`, triggering Firebase to send an official password-reset link to the user's email address
 * **Security & User Privacy Handling:** 
-  * To prevent user enumeration attacks (malicious actors checking if an email exists in the database), the application handles the response securely: whether or not the email is registered, the UI safely displays a neutral confirmation message: "If that email is registered, a reset link has been sent."
+  * To prevent user enumeration attacks (malicious actors checking if an email exists in the database), the application handles the response securely: whether or not the email is registered, the UI displays the same neutral message: "If that email is registered, we sent a reset link to it." Only `auth/user-not-found` gets this message. Network failures, rate limits and invalid emails show an error that says what to do, so a user whose request never went out is not told to check their inbox.
   * Once completed, users can click a "Back to Sign In" link to return to the login interface
+
+## Frontend and HCI improvements
+
+These changes follow the CMSC 134 view that a UI is a conversation with the user: every control should say what it does, every action should get an answer, and mistakes should be easy to take back.
+
+Who uses it: UP students managing school and personal tasks, alone or in a shared group list, often on a phone between classes. Mistakes are cheap to fix but annoying, so the app favors confirmation plus undo over blocking the user.
+
+### Delete confirmation and undo
+
+Clicking Delete on a task opens a dialog titled with the task's name, such as `Delete "Buy groceries"?`. The buttons say what they do ("Keep task" and "Delete task"), and Keep task has focus first, so pressing Enter by accident is safe. Escape also cancels. The group-list confirmations (delete list, leave list, remove member) are unchanged.
+
+After you confirm, the task disappears and a notice at the bottom of the screen says `Deleted "Buy groceries".` with an Undo button. The server delete waits 8 seconds. Undo inside that window puts the same task back where it was, with its original id, creator and date, because nothing was deleted yet. This is the second expanded Lab 1 feature; filter and sort is the first.
+
+The dialog is the native `<dialog>` element (`client/src/useConfirm.jsx`), which handles focus trapping and Escape without extra code.
+
+| Confirm | Undo |
+| --- | --- |
+| ![Delete confirmation dialog](client/src/assets/hci/delete-confirm.jpg) | ![Undo notice after deleting](client/src/assets/hci/delete-undo.jpg) |
+
+### Profile forms
+
+Saving the name now updates the Firebase account (`updateProfile`), so other members of a shared list see the new name too. Changing the email asks for the current password and sends a confirmation link to the new address (`verifyBeforeUpdateEmail`); the email changes once that link is opened, and the page says so. A separate Change password form checks the current password before setting the new one. These calls live in `authContext.jsx` as `updateAccount` and `changePassword`.
+
+### Unsaved changes
+
+When a profile form has edits that are not saved, the page shows "You have unsaved changes." Clicking Tasks or Log out then asks `Discard your profile changes?` with "Keep editing" and "Discard changes". Closing or reloading the tab triggers the browser's own leave warning. Save changes and Discard changes stay disabled until there is something to save or discard, so their state tells you whether anything changed.
+
+![Unsaved changes warning](client/src/assets/hci/unsaved-changes.jpg)
+
+### Action feedback
+
+Every action that waits on the server shows that it is working and then how it went:
+
+- Task form: the button reads "Adding…" or "Saving…" while the request runs, then a notice confirms "Task added to Personal list." or "Changes saved."
+- Task checkboxes and row buttons are disabled while that task's update is in flight, so a double click can't send two requests.
+- Profile and password forms disable their fields while saving and report success or a specific error under the form.
+- Log out reads "Logging out…" and shows an error if it fails.
+- List controls (create list, add member) disable themselves and read "Working…" during a request.
+- Error messages start with what failed, such as "Couldn't load tasks.", followed by the server's reason.
+
+Errors use `role="alert"` so screen readers announce them; success notices use `role="status"`, which is announced without interrupting.
+
+### Password recovery feedback
+
+The reset form still shows the same neutral message whether or not an email has an account. It no longer hides real failures: a network error now says "Can't reach the server. Check your internet connection and try again." instead of claiming a link was sent.
+
+![Reset password network error](client/src/assets/hci/reset-network-error.jpg)
+
+### Responsive layouts
+
+Under 640px wide, the header stacks the greeting above the navigation, and the filter bar, task form and list controls become single columns with full-width inputs. Task rows put the title on its own line, with due date and badges below and Edit and Delete as equal-width buttons. Nothing on the page scrolls sideways at 375px. Buttons and inputs are at least 44px tall, which fits a thumb.
+
+| Phone: top of page | Phone: task rows |
+| --- | --- |
+| ![Tasks page on a phone](client/src/assets/hci/tasks-phone.jpg) | ![Task rows on a phone](client/src/assets/hci/task-rows-phone.jpg) |
+
+### Accessibility and consistency
+
+- Each task title is the `<label>` for its checkbox, so screen readers read "Buy groceries, checkbox, not checked", and clicking the title toggles it.
+- Edit and Delete buttons carry the task name in their accessible label (`Edit "Buy groceries"`).
+- Every focusable element shows a 3px blue outline when reached by keyboard.
+- Colors moved into CSS variables at the top of `App.css`. Text and button colors are at least 5:1 against their background; the old medium-priority orange (about 3.6:1) and the red `h2` headings are gone.
+- Priority badges say "High priority" rather than relying on color.
+- One spacing scale (4, 8, 12, 16, 24, 32px), one button height, and sentence case for every label ("Add task", "Log out").
+- Disabled buttons are pale gray, which looks different from the dark-gray secondary buttons.
+
+![Keyboard focus on the navigation](client/src/assets/hci/keyboard-focus.png)
+
+### Navigation and greeting
+
+The header shows `Hello, <display name>`, falling back to the part of the email before the `@` when no name is set. Below it, the page title says where you are (Tasks or Your profile). The current tab is marked with a filled background, an underline and `aria-current="page"`, so the active page does not depend on color alone. Signing in always lands on Tasks.
+
+![Tasks page on desktop](client/src/assets/hci/tasks-desktop.jpg)
+
+### Frontend structure
+
+`App.jsx` keeps the state and the API calls. The parts it used to render inline are now their own components:
+
+| File | What it shows |
+| --- | --- |
+| `TaskForm.jsx` | The add/edit task form |
+| `TaskFilters.jsx` | The sort and filter bar |
+| `TaskList.jsx` | The task list, each task row, and the loading and empty states |
+| `useConfirm.jsx` | The confirm dialog, used for task deletes and unsaved changes |
+| `authErrors.js` | Firebase error codes mapped to plain messages, shared by Login and Profile |
+
+The screenshots above use sample tasks.
 
 ## App Screenshots
 ![Project Screenshot 1](client/src/assets/appSS3.png)

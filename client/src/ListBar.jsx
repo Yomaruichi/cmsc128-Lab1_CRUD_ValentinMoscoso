@@ -79,8 +79,8 @@ export default function ListBar({
     <section className="card list-bar">
       <div className="list-bar-row">
         <div className="control-group">
-          <label htmlFor="listSelect">To-Do List:</label>
-          <select id="listSelect" value={activeListId} onChange={handleSelect}>
+          <label htmlFor="listSelect">To-do list</label>
+          <select id="listSelect" value={activeListId} onChange={handleSelect} disabled={busy}>
             <option value="personal">Personal</option>
             {lists.length > 0 && (
               <optgroup label="Collaborative">
@@ -106,13 +106,13 @@ export default function ListBar({
             required
           />
           <button type="submit" className="btn btn-secondary" disabled={busy}>
-            Create List
+            {busy ? 'Working…' : 'Create list'}
           </button>
         </form>
       </div>
 
       {msg.text && (
-        <p className={msg.type === 'error' ? 'form-error' : 'form-info'} role="alert">
+        <p className={msg.type === 'error' ? 'form-error' : 'form-success'} role={msg.type === 'error' ? 'alert' : 'status'}>
           {msg.text}
         </p>
       )}
@@ -153,7 +153,7 @@ export default function ListBar({
                 required
               />
               <button type="submit" className="btn btn-primary" disabled={busy}>
-                Add Member
+                {busy ? 'Working…' : 'Add member'}
               </button>
             </form>
           ) : (
@@ -163,11 +163,11 @@ export default function ListBar({
           <div className="list-danger">
             {active.isOwner ? (
               <button type="button" className="btn btn-danger" disabled={busy} onClick={handleDelete}>
-                Delete List
+                Delete list
               </button>
             ) : (
               <button type="button" className="btn btn-secondary" disabled={busy} onClick={handleLeave}>
-                Leave List
+                Leave list
               </button>
             )}
           </div>

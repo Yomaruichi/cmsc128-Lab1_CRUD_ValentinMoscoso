@@ -1,14 +1,10 @@
 import { useState } from 'react';
 import { useAuth } from './authContext';
+import { authErrorMessage } from './authErrors';
 
-const ERRORS = {
-  'auth/email-already-in-use': 'That email is already registered.',
-  'auth/invalid-credential': 'Incorrect email or password.',
-  'auth/invalid-email': 'Please enter a valid email address.',
-  'auth/weak-password': 'Password must be at least 6 characters.',
-  'auth/too-many-requests': 'Too many attempts. Try again later.',
-  'auth/network-request-failed': 'Network error. Check your connection.',
-};
+// Reset errors that would reveal whether an email has an account. These get the
+// same neutral message as a success; every other error (network, rate limit) is shown.
+const NEUTRAL_RESET_CODES = new Set(['auth/user-not-found']);
 
 export default function Login() {
   const { signup, login, resetPassword } = useAuth();
@@ -50,35 +46,39 @@ export default function Login() {
       if (isSignUp) {
         await signup(form.email, form.password, form.fullName);
       } else if (isReset) {
-        await resetPassword(form.email).catch(() => {});
-        // Same message either way so we don't reveal which emails exist
-        setInfo('If that email is registered, a reset link has been sent.');
+        try {
+          await resetPassword(form.email);
+        } catch (err) {
+          if (!NEUTRAL_RESET_CODES.has(err.code)) throw err;
+        }
+        setInfo('If that email is registered, we sent a reset link to it. Check your inbox and spam folder.');
       } else {
         await login(form.email, form.password);
       }
       // Auth state updates after a successful signup or login.
     } catch (err) {
-      setError(ERRORS[err.code] || 'Something went wrong. Please try again.');
+      setError(authErrorMessage(err));
     } finally {
       setBusy(false);
     }
   };
 
   const title = isReset
-    ? 'Reset Password'
+    ? 'Reset your password'
     : isSignUp
-    ? 'Create an Account'
-    : 'Welcome Back';
+    ? 'Create an account'
+    : 'Welcome back';
   const subtitle = isReset
     ? "Enter your email and we'll send you a reset link"
     : isSignUp
     ? 'Sign up to start managing your tasks'
     : 'Sign in to access your personal To-Do list';
   const submitLabel = isReset
-    ? 'Send Reset Link'
+    ? 'Send reset link'
     : isSignUp
-    ? 'Sign Up'
-    : 'Sign In';
+    ? 'Create account'
+    : 'Sign in';
+  const busyLabel = isReset ? 'Sending link…' : isSignUp ? 'Creating account…' : 'Signing in…';
 
   return (
     <div className="login-container">
@@ -87,12 +87,12 @@ export default function Login() {
         <p className="login-subtitle">{subtitle}</p>
 
         {error && <p className="form-error" role="alert">{error}</p>}
-        {info && <p className="form-info">{info}</p>}
+        {info && <p className="form-info" role="status">{info}</p>}
 
         <form onSubmit={handleSubmit} className="task-form">
           {isSignUp && (
             <div className="form-group">
-              <label htmlFor="fullName">Full Name</label>
+              <label htmlFor="fullName">Full name</label>
               <input
                 type="text"
                 id="fullName"
@@ -106,7 +106,7 @@ export default function Login() {
           )}
 
           <div className="form-group">
-            <label htmlFor="email">Email Address</label>
+            <label htmlFor="email">Email address</label>
             <input
               type="email"
               id="email"
@@ -135,7 +135,7 @@ export default function Login() {
 
           {isSignUp && (
             <div className="form-group">
-              <label htmlFor="confirmPassword">Confirm Password</label>
+              <label htmlFor="confirmPassword">Confirm password</label>
               <input
                 type="password"
                 id="confirmPassword"
@@ -152,7 +152,7 @@ export default function Login() {
             className="btn btn-primary btn-block"
             disabled={busy}
           >
-            {busy ? 'Please wait...' : submitLabel}
+            {busy ? busyLabel : submitLabel}
           </button>
         </form>
 
@@ -175,7 +175,7 @@ export default function Login() {
               className="btn-link"
               onClick={() => switchMode('signin')}
             >
-              Back to Sign In
+              Back to sign in
             </button>
           ) : (
             <>
@@ -187,7 +187,7 @@ export default function Login() {
                 className="btn-link"
                 onClick={() => switchMode(isSignUp ? 'signin' : 'signup')}
               >
-                {isSignUp ? 'Sign In' : 'Sign Up'}
+                {isSignUp ? 'Sign in' : 'Sign up'}
               </button>
             </>
           )}
