@@ -22,25 +22,52 @@ router.param('id', (req, res, next, id) => {
   next();
 });
 
-// A collaborative list stores only member UIDs. Names and emails are looked up
-// from Firebase Auth when sending the response, so user data is never duplicated.
-async function buildListResponse(list, uid) {
-  const memberIdentifiers = list.memberIds.map((uid) => ({ uid }));
+// Resolve each distinct member once per request. Firebase Auth accepts up to
+// 100 identifiers per lookup. The map stays local so account details remain fresh.
+async function loadMembersByUid(lists) {
+  const uniqueMemberIds = new Set();
 
-  const { users } = await auth.getUsers(memberIdentifiers);
+  for (const list of lists) {
+    for (const memberUid of list.memberIds) {
+      uniqueMemberIds.add(memberUid);
+    }
+  }
 
-  const members = users
-    .map((user) => ({
-      uid: user.uid,
-      email: user.email,
-      displayName: user.displayName || null,
-    }))
+  const memberIds = [...uniqueMemberIds];
+
+  const membersByUid = new Map();
+
+  for (let offset = 0; offset < memberIds.length; offset += 100) {
+    const memberBatch = memberIds.slice(offset, offset + 100);
+
+    const identifiers = memberBatch.map((uid) => ({ uid }));
+
+    const { users } = await auth.getUsers(identifiers);
+
+    for (const user of users) {
+      membersByUid.set(user.uid, {
+        uid: user.uid,
+        email: user.email,
+        displayName: user.displayName || null,
+      });
+    }
+  }
+
+  return membersByUid;
+}
+
+// Only attach members of this specific list, even when the lookup map contains
+// users from other lists in the response. Deleted accounts are omitted.
+function buildListResponse(list, uid, membersByUid) {
+  const members = list.memberIds
+    .map((memberUid) => membersByUid.get(memberUid))
+    .filter(Boolean)
     .sort((firstMember, secondMember) => {
       const firstIsOwner = firstMember.uid === list.ownerId;
 
       const secondIsOwner = secondMember.uid === list.ownerId;
 
-      return secondIsOwner - firstIsOwner; // Show the owner first.
+      return secondIsOwner - firstIsOwner;
     });
 
   return {
@@ -83,9 +110,16 @@ router.get('/', async (req, res) => {
       .where('memberIds', 'array-contains', req.uid)
       .get();
 
-    const listResponses = await Promise.all(
-      listsSnapshot.docs.map((listSnapshot) => buildListResponse({ id: listSnapshot.id, ...listSnapshot.data() }, req.uid))
-    );
+    const lists = listsSnapshot.docs.map((listSnapshot) => ({
+      id: listSnapshot.id,
+      ...listSnapshot.data(),
+    }));
+
+    const membersByUid = await loadMembersByUid(lists);
+
+    const listResponses = lists.map((list) => {
+      return buildListResponse(list, req.uid, membersByUid);
+    });
 
     listResponses.sort((firstList, secondList) => {
       return firstList.name.localeCompare(secondList.name);
@@ -117,7 +151,11 @@ router.post('/', async (req, res) => {
 
     const listSnapshot = await listReference.get();
 
-    res.status(201).json(await buildListResponse({ id: listSnapshot.id, ...listSnapshot.data() }, req.uid));
+    const responseList = { id: listSnapshot.id, ...listSnapshot.data() };
+
+    const membersByUid = await loadMembersByUid([responseList]);
+
+    res.status(201).json(buildListResponse(responseList, req.uid, membersByUid));
   } catch (err) {
     console.error('POST /lists failed:', err);
 
@@ -166,7 +204,11 @@ router.post('/:id/members', async (req, res) => {
 
     const updatedListSnapshot = await listReference.get();
 
-    res.json(await buildListResponse({ id: updatedListSnapshot.id, ...updatedListSnapshot.data() }, req.uid));
+    const responseList = { id: updatedListSnapshot.id, ...updatedListSnapshot.data() };
+
+    const membersByUid = await loadMembersByUid([responseList]);
+
+    res.json(buildListResponse(responseList, req.uid, membersByUid));
   } catch (err) {
     console.error('POST /lists/:id/members failed:', err);
 
