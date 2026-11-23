@@ -12,10 +12,6 @@ const TAGS = ['School', 'Personal', 'Others'];
 
 const MAX_TITLE = 200;
 
-function personalTasksCollection(uid) {
-  return db.collection('users').doc(uid).collection('todos');
-}
-
 const tasksCollection = () => db.collection('tasks');
 
 function parseListId(listId) {
@@ -84,8 +80,8 @@ function validateTaskFields(requestData, { requireTitle = false } = {}) {
   return { updates };
 }
 
-// Personal reads keep using the existing users/{uid}/todos records. Shared list
-// tasks live in the shared collection and are only returned to list members.
+// Personal tasks are filtered by the verified owner UID. Shared tasks require
+// membership in their collaborative list before the query is allowed.
 router.get('/', async (req, res) => {
   try {
     const listId = parseListId(req.query.listId);
@@ -93,23 +89,15 @@ router.get('/', async (req, res) => {
     let todos;
 
     if (listId === null) {
-      // The original app stored personal tasks under users/{uid}/todos. The
-      // Activity 3 seeder and newer ownership schema use /tasks with listId:null.
-      // Read both so existing records and seeded records appear together.
-      const [legacyTasksSnapshot, ownedTasksSnapshot] = await Promise.all([
-        personalTasksCollection(req.uid)
-          .orderBy('createdAt', 'desc')
-          .get(),
-        tasksCollection()
-          .where('ownerId', '==', req.uid)
-          .where('listId', '==', null)
-          .get(),
-      ]);
+      const tasksSnapshot = await tasksCollection()
+        .where('ownerId', '==', req.uid)
+        .where('listId', '==', null)
+        .get();
 
-      todos = [
-        ...legacyTasksSnapshot.docs.map((taskSnapshot) => ({ id: taskSnapshot.id, ...taskSnapshot.data() })),
-        ...ownedTasksSnapshot.docs.map((taskSnapshot) => ({ id: taskSnapshot.id, ...taskSnapshot.data() })),
-      ];
+      todos = tasksSnapshot.docs.map((taskSnapshot) => ({
+        id: taskSnapshot.id,
+        ...taskSnapshot.data(),
+      }));
     } else {
       const list = await getListForMember(listId, req.uid);
 
@@ -150,26 +138,12 @@ router.post('/', async (req, res) => {
   try {
     const listId = parseListId(req.body.listId);
 
-    if (listId === null) {
-      // Preserve the established personal-task schema and its existing data.
-      const taskReference = await personalTasksCollection(req.uid).add({
-        dueDate: null,
-        priority: 'Med',
-        tag: 'Others',
-        ...updates,
-        completed: false,
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
+    if (listId !== null) {
+      const list = await getListForMember(listId, req.uid);
 
-      const taskSnapshot = await taskReference.get();
-
-      return res.status(201).json({ id: taskSnapshot.id, ...taskSnapshot.data() });
-    }
-
-    const list = await getListForMember(listId, req.uid);
-
-    if (!list) {
-      return res.status(404).json({ error: 'List not found' });
+      if (!list) {
+        return res.status(404).json({ error: 'List not found' });
+      }
     }
 
     const taskReference = await tasksCollection().add({
@@ -179,7 +153,7 @@ router.post('/', async (req, res) => {
       ...updates,
       completed: false,
       ownerId: req.uid,
-      listId: list.id,
+      listId,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
@@ -208,23 +182,7 @@ router.put('/:id', async (req, res) => {
     const accessibleTask = await getTaskForUser(req.params.id, req.uid);
 
     if (!accessibleTask) {
-      // Fallback preserves access to legacy personal records in the per-user collection.
-      const taskReference = personalTasksCollection(req.uid).doc(req.params.id);
-
-      const taskSnapshot = await taskReference.get();
-
-      if (!taskSnapshot.exists) {
-        return res.status(404).json({ error: 'Task not found' });
-      }
-
-      await taskReference.update({
-        ...updates,
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
-
-      const updatedTaskSnapshot = await taskReference.get();
-
-      return res.json({ id: updatedTaskSnapshot.id, ...updatedTaskSnapshot.data() });
+      return res.status(404).json({ error: 'Task not found' });
     }
 
     await accessibleTask.ref.update({
@@ -246,30 +204,19 @@ router.delete('/:id', async (req, res) => {
   try {
     const accessibleTask = await getTaskForUser(req.params.id, req.uid);
 
-    if (accessibleTask) {
-      if (
-        accessibleTask.list &&
-        accessibleTask.task.ownerId !== req.uid &&
-        accessibleTask.list.ownerId !== req.uid
-      ) {
-        return res.status(403).json({ error: 'Only the task creator or the list owner can delete this task' });
-      }
-
-      await accessibleTask.ref.delete();
-
-      return res.status(204).send();
-    }
-
-    // Preserve deletes for older per-user tasks that predate shared lists.
-    const taskReference = personalTasksCollection(req.uid).doc(req.params.id);
-
-    const taskSnapshot = await taskReference.get();
-
-    if (!taskSnapshot.exists) {
+    if (!accessibleTask) {
       return res.status(404).json({ error: 'Task not found' });
     }
 
-    await taskReference.delete();
+    if (
+      accessibleTask.list &&
+      accessibleTask.task.ownerId !== req.uid &&
+      accessibleTask.list.ownerId !== req.uid
+    ) {
+      return res.status(403).json({ error: 'Only the task creator or the list owner can delete this task' });
+    }
+
+    await accessibleTask.ref.delete();
 
     res.status(204).send();
   } catch (err) {
