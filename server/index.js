@@ -10,6 +10,8 @@ const todosRouter = require('./routes/todos');
 
 const listsRouter = require('./routes/lists');
 
+const errorHandler = require('./middleware/errorHandler');
+
 const app = express();
 
 const PORT = 5000;
@@ -26,6 +28,12 @@ app.get('/', (req, res) => {
 app.use('/api/todos', requireAuth, todosRouter);
 
 app.use('/api/lists', requireAuth, listsRouter);
+
+app.use('/api', (req, res) => {
+  res.status(404).json({ error: 'API endpoint not found.' });
+});
+
+app.use(errorHandler);
 
 app.listen(PORT, () => {
   console.log(`Server listening on http://localhost:${PORT}`);

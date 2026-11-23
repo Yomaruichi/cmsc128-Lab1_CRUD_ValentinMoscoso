@@ -4,7 +4,11 @@ const { admin, db, auth } = require('../config/firebaseadmin');
 
 const { validId, getListForMember } = require('../lib/access');
 
+const requireJsonBody = require('../middleware/requireJsonBody');
+
 const router = express.Router();
+
+router.use(requireJsonBody);
 
 const MAX_MEMBERS = 20;
 

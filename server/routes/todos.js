@@ -4,7 +4,11 @@ const { admin, db } = require('../config/firebaseadmin');
 
 const { validId, getListForMember, getTaskForUser } = require('../lib/access');
 
+const requireJsonBody = require('../middleware/requireJsonBody');
+
 const router = express.Router();
+
+router.use(requireJsonBody);
 
 const PRIORITIES = ['Low', 'Med', 'High'];
 
