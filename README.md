@@ -18,25 +18,22 @@ FERN was the chosen tech stack by us because the knowledge we will gain in build
 
 - Git
 - npm
-- Node.js (20.x+)
+- Node.js 20.19+ within version 20, or 22.12+ (required by our Vite version)
 
 ## Installation & Initialization
 
-1. Clone the repo
+1. Clone the repo and enter the folder.
+
 ```bash
 git clone https://github.com/Yomaruichi/cmsc128-Lab1_CRUD_ValentinMoscoso.git
 cd cmsc128-Lab1_CRUD_ValentinMoscoso
 ```
 
-2. Set up the client
-```bash
-cd client
-npm install
-```
+Use the branch containing the final application. Refactoring currently lives on `act4-refactor` until it is merged into `main`.
 
-3. Add Firebase configs
-Create a **.env.local** file inside **client/** and insert your Firebase keys
-```bash
+2. In the Firebase console, use your project with Firestore and Authentication enabled. Enable the Email/Password sign-in provider. Copy the web app configuration into `client/.env.local`.
+
+```dotenv
 VITE_FIREBASE_API_KEY=
 VITE_FIREBASE_AUTH_DOMAIN=
 VITE_FIREBASE_PROJECT_ID=
@@ -44,32 +41,125 @@ VITE_FIREBASE_STORAGE_BUCKET=
 VITE_FIREBASE_MESSAGING_SENDER_ID=
 VITE_FIREBASE_APP_ID=
 VITE_FIREBASE_MEASUREMENT_ID=
+VITE_API_URL=http://localhost:5000/api
 ```
 
-4. Download a service account key (Firebase console → Project settings → Service accounts → Generate new private key), save it as `server/serviceAccountKey.json`, and create `server/.env`:
+3. Download a Firebase service-account key from Project settings > Service accounts and save it as `server/serviceAccountKey.json`. This file stays local and must be excluded from Git. The backend and client must use the same Firebase project.
 
-5. Run the client
-If you're in the root folder
+The backend loads `FIREBASE_SERVICE_ACCOUNT_JSON` first, then a file specified by `FIREBASE_SERVICE_ACCOUNT_PATH`, then the default local file. For the usual local setup, create `server/.env` with the following value.
+
+```dotenv
+PORT=5000
+```
+
+The backend currently uses `cors()` with its default settings. `CLIENT_ORIGIN` is not used by the server.
+
+4. Install and run the backend in one terminal from the project root.
+
+```bash
+cd server
+npm ci
+npm start
+```
+
+The API runs at `http://localhost:5000`. Opening that address returns its health-check JSON.
+
+5. Install and run the client in a second terminal from the project root.
+
 ```bash
 cd client
+npm ci
 npm run dev
 ```
-else
-```bash
-npm run dev
-```
-default address: http://localhost:5173/
 
-6. Set up the server
+Open `http://localhost:5173`.
+
+## Hosted app and deployment
+
+- Frontend (Firebase Hosting): https://cmsc128-todo-list.web.app
+- Backend (Railway): https://cmsc128-lab1crudvalentinmoscoso-production.up.railway.app
+- Database and accounts: Firestore and Firebase Authentication in the `cmsc128-todo-list` project.
+
+### Railway backend
+
+Connect the GitHub repository to a Railway service and select the branch containing the backend changes.
+
+| Setting | Value |
+| --- | --- |
+| Root directory | `/server` |
+| Watch paths | `/server/**` |
+| Start command | `npm start` |
+| Health-check path | `/` |
+
+In that service's Variables tab, add `FIREBASE_SERVICE_ACCOUNT_JSON` with the entire service-account JSON as its value. Keep it in the backend service and do not commit its contents. The server reads Railway's `PORT` and listens on `0.0.0.0`. Generate the public domain under Settings > Networking > Public Networking.
+
+### Firebase frontend
+
+Install the Firebase CLI once, then run the remaining Firebase commands from the project root.
+
 ```bash
-cd ../server
-npm install
+npm install -g firebase-tools
+firebase login
+firebase use --add
 ```
 
-7. Run the server
-```bash
-npm run start
+Select the existing `cmsc128-todo-list` project. For a fresh clone, configure Hosting with `firebase init hosting`, select `client/dist` as the public directory, and choose the single-page application rewrite. Keep the generated React `index.html` when asked whether to overwrite it. Hosting should serve `client/dist` and rewrite application paths to `/index.html`.
+
+Create `client/.env.production.local` with the Railway API address, including HTTPS and the `/api` suffix.
+
+```dotenv
+VITE_API_URL=https://cmsc128-lab1crudvalentinmoscoso-production.up.railway.app/api
 ```
+
+Keep the Firebase web configuration in `client/.env.local` available during the build. Vite includes those web configuration values in the frontend bundle. The service-account private key belongs only on the backend.
+
+```bash
+cd client
+npm ci
+npm run build
+cd ..
+firebase deploy --only hosting
+```
+
+The build creates `client/dist`. Repeat the build and Hosting deployment after client changes, including changes to `VITE_API_URL`. Backend changes are deployed through the connected Railway service.
+
+### Firestore rules
+
+The app uses the Express API for task and list access, so `firestore.rules` denies all direct client reads and writes. The Admin SDK uses its server credentials and bypasses those rules. The API's token verification and ownership/membership checks therefore remain responsible for user access.
+
+Deploy the local rules separately from Hosting, using the intended Firebase project.
+
+```bash
+firebase deploy --only firestore:rules
+```
+
+## Backend refactoring and optimization
+
+We kept Express and Firebase and made the data flow easier to follow. Database references and snapshots now use descriptive names, conditions have visible blocks, and variables and operations are spaced so each step can be traced during the defense.
+
+| Before | Now | Reason |
+| --- | --- | --- |
+| Every collaborative list fetched its members' account details separately | Unique member UIDs are collected across the returned lists and fetched in batches of up to 100 | Avoids resolving the same account repeatedly |
+| Parser failures and unknown endpoints could return Express HTML errors | Request-body validation and final error middleware return JSON messages | The client can display errors without exposing server stack traces |
+
+For example, three lists sharing the same two users previously made three Firebase Auth lookups. Now those users are resolved in one batch, and each list receives only its own members from the lookup map. The map is local to the request so later requests receive fresh account details.
+
+### API error handling
+
+Errors use `{ "error": "message" }`. The client displays the message returned by the API.
+
+| Status | Example |
+| --- | --- |
+| 400 | Invalid JSON, invalid field values, or a non-object request body |
+| 401 | Missing, invalid, or expired Firebase ID token |
+| 403 | A member attempts an owner-only action |
+| 404 | Missing/inaccessible task or list, or unknown API endpoint |
+| 409 | Adding a user who is already a member |
+| 413 | Request body exceeds the parser's size limit |
+| 415 | Unsupported content type or encoding |
+| 500 | Unexpected server/database failure, with a safe message for the client |
+
+Unexpected failures are logged on the server. The API does not return stack traces or database exception details to the client.
 
 ## How Activity 1 and Activity 2 were merged
 
@@ -151,10 +241,10 @@ Implemented using Firebase Authentication combined with React Context (`authCont
 * **Protected Routes & UI Flow:** 
 
   * The root component (`App.jsx`) checks the `user` state from the authentication context 
-  * If no user is authenticated (`!user`), the app renders the `<Login/>` component and blocks access to the to-do dashboard[cite: 1, 3]. 
+  * If no user is authenticated (`!user`), the app renders the `<Login/>` component and blocks access to the to-do dashboard. 
   * Once authenticated, the user’s email is displayed in the header alongside a **Log Out** button which triggers Firebase's `signOut` method, clearing the session state and resetting local task data
 
-* **API Request Authorization:** For backend operations, client requests to protected endpoints include the Firebase ID token in the header (`Authorization: Bearer <Firebase ID token>`) to ensure secure, user-scoped data access in Firestore (`users/{uid}/todos/{todoId}`)
+* **API Request Authorization:** For backend operations, client requests to protected endpoints include the Firebase ID token in the header (`Authorization: Bearer <Firebase ID token>`) to ensure secure, user-scoped data access in Firestore (`tasks/{taskId}`)
 
 ### Password-Recovery Mechanism
 
