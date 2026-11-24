@@ -17,6 +17,19 @@ const PERSONAL = 'personal';
 const UNDO_MS = 8000; // how long a deleted task can be restored, and how long notices stay up
 const PRIORITY_RANK = { High: 0, Med: 1, Low: 2 };
 
+// The undo timer dies with the tab, so the pending delete is also written to
+// localStorage and finished on the next load if the tab closed during the undo window.
+const PENDING_KEY = 'pendingDelete';
+function savePendingDelete(value) {
+  try {
+    if (value) localStorage.setItem(PENDING_KEY, JSON.stringify(value));
+    else localStorage.removeItem(PENDING_KEY);
+  } catch { /* storage blocked: the delete still runs while the tab stays open */ }
+}
+function readPendingDelete() {
+  try { return JSON.parse(localStorage.getItem(PENDING_KEY)); } catch { return null; }
+}
+
 function applyFilters(tasks, { sortBy, tag, priority }) {
   return tasks
     .filter((task) => tag === 'All' || task.tag === tag)
@@ -98,6 +111,11 @@ export default function App() {
       try {
         setLoading(true);
         setError(null);
+        const leftover = readPendingDelete();
+        if (leftover?.uid === user.uid) {
+          savePendingDelete(null);
+          await deleteTodo(leftover.taskId).catch(() => {}); // already gone or not allowed: nothing to restore
+        }
         const data = await getTodos(activeListId);
         if (!ignore) setTasks(data);
       } catch (err) {
@@ -190,15 +208,19 @@ export default function App() {
   async function handleSubmit(e) {
     e.preventDefault();
     setSaving(true);
+    const listId = activeListId;
+    // The user may switch lists while the request is in flight; only touch
+    // the visible tasks if they still belong to the list the task was saved to.
+    const stillOnList = () => activeListRef.current === listId;
     try {
       if (editingId) {
         const updated = await updateTodo(editingId, form);
-        setTasks((current) => current.map((task) => (task.id === editingId ? updated : task)));
+        if (stillOnList()) setTasks((current) => current.map((task) => (task.id === editingId ? updated : task)));
         setEditingId(null);
         showNotice('Changes saved.');
       } else {
-        const created = await addTodo({ ...form, listId: activeListId });
-        setTasks((current) => [created, ...current]);
+        const created = await addTodo({ ...form, listId });
+        if (stillOnList()) setTasks((current) => [created, ...current]);
         showNotice(`Task added to ${listTitle}.`);
       }
       setForm(EMPTY_TASK);
@@ -248,6 +270,7 @@ export default function App() {
     setTasks((current) => current.filter((item) => item.id !== task.id));
     if (editingId === task.id) cancelEdit();
     pendingDelete.current = { task, index, listId: activeListId, timer: setTimeout(commitDelete, UNDO_MS) };
+    savePendingDelete({ uid: user.uid, taskId: task.id });
     showNotice(`Deleted "${task.title}".`, undoDelete);
   }
 
@@ -264,12 +287,12 @@ export default function App() {
     if (!pending) return;
     clearTimeout(pending.timer);
     pendingDelete.current = null;
+    savePendingDelete(null);
     restoreTask(pending);
     showNotice(`Restored "${pending.task.title}".`);
   }
 
   // Sends the pending delete to the server now. Safe to call when nothing is pending.
-  // shortcut: closing the tab inside the undo window drops the delete (the task survives), add a beforeunload flush if that matters.
   async function commitDelete() {
     const pending = pendingDelete.current;
     if (!pending) return;
@@ -277,7 +300,9 @@ export default function App() {
     pendingDelete.current = null;
     try {
       await deleteTodo(pending.task.id);
+      savePendingDelete(null);
     } catch (err) {
+      savePendingDelete(null);
       setError(`Couldn't delete "${pending.task.title}", so it's back in the list. ${err.message}`);
       if (activeListRef.current === pending.listId) restoreTask(pending);
     }

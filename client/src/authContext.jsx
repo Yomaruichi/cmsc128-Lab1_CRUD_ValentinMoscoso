@@ -42,13 +42,16 @@ export function AuthProvider({ children }) {
 
   // A name change applies right away. An email change only applies after the
   // user opens the verification link sent to the new address.
+  // The email steps run first so a wrong password fails before anything is saved.
   const updateAccount = async ({ fullName, email, currentPassword }) => {
     const current = auth.currentUser;
+    const emailPending = email !== current.email;
+    if (emailPending) {
+      await reauthenticate(currentPassword);
+      await verifyBeforeUpdateEmail(current, email);
+    }
     if (fullName !== (current.displayName || '')) await updateProfile(current, { displayName: fullName });
-    if (email === current.email) return { emailPending: false };
-    await reauthenticate(currentPassword);
-    await verifyBeforeUpdateEmail(current, email);
-    return { emailPending: true };
+    return { emailPending };
   };
 
   const changePassword = async (currentPassword, newPassword) => {
